@@ -1,0 +1,9 @@
+{
+  "name": "prep-manager-command-center",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": { "dev": "next dev", "build": "next build", "start": "next start" },
+  "dependencies": { "next": "15.5.27", "react": "18.3.1", "react-dom": "18.3.1" },
+  "devDependencies": { "@tailwindcss/postcss": "4.3.3", "@types/node": "^22", "@types/react": "^18", "@types/react-dom": "^18", "postcss": "^8.5.23", "tailwindcss": "4.3.3", "typescript": "^5.7.2" },
+  "overrides": { "postcss": "^8.5.23" }
+}
