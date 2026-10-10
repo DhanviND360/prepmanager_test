@@ -31,7 +31,11 @@ export async function POST(request: NextRequest) {
   }
 
   const apiBase = (process.env.PREP_API_BASE_URL || "https://cube26-prp-0211-dhanvind360.onrender.com").replace(/\/$/, "");
+  // /run requires an identifier even for image-only requests. Keep it internal
+  // and unique so the operator never has to enter unit metadata.
+  const unitId = `upload-${crypto.randomUUID()}`;
   const payload = {
+    unit_id: unitId,
     images: Object.fromEntries(views.map((view) => [view, `data:${images[view].mime};base64,${images[view].bytes.toString("base64")}`])),
     force_reinspect: true,
     image_mode: "live_upload",

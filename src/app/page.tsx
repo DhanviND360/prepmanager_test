@@ -11,27 +11,6 @@ function verdictOf(result: ApiResult): Verdict { return String(result.decision ?
 function pretty(value: unknown) { return JSON.stringify(value, null, 2); }
 function scalar(value: unknown): string { return typeof value === "string" || typeof value === "number" || typeof value === "boolean" ? String(value) : ""; }
 
-function parseCsv(source: string): string[][] {
-  const rows: string[][] = []; let row: string[] = []; let value = ""; let quoted = false;
-  const text = source.replace(/^\uFEFF/, "");
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (ch === '"') { if (quoted && text[i + 1] === '"') { value += '"'; i++; } else quoted = !quoted; }
-    else if (ch === "," && !quoted) { row.push(value.trim()); value = ""; }
-    else if ((ch === "\n" || ch === "\r") && !quoted) { if (ch === "\r" && text[i + 1] === "\n") i++; row.push(value.trim()); if (row.some((cell) => cell)) rows.push(row); row = []; value = ""; }
-    else value += ch;
-  }
-  row.push(value.trim()); if (row.some((cell) => cell)) rows.push(row);
-  return rows;
-}
-
-const csvAliases: Record<string, string> = {
-  unitid: "unit_id", unit: "unit_id", orgid: "org_id", organizationid: "org_id", organisationid: "org_id", sku: "sku", fnsku: "fnsku",
-  workorderid: "work_order_id", woid: "work_order_id", fbashipmentid: "fba_shipment_id", shipmentid: "fba_shipment_id", handlingmarks: "wo_handling_marks", wohandlingmarks: "wo_handling_marks",
-  wopolybag: "wo_polybag", polybagrequired: "wo_polybag", wosuffocationwarning: "wo_suffocation_warning", suffocationwarningrequired: "wo_suffocation_warning", woexpirydate: "wo_expiry_date", expiryrequired: "wo_expiry_date",
-};
-function csvBoolean(value: string) { return ["true", "1", "yes", "y", "required"].includes(value.trim().toLowerCase()); }
-
 function statusColor(status: string) {
   const v = status.toUpperCase();
   if (v.includes("PASS") || v.includes("RELEASE") || v === "COMPLIANT") return "text-acid border-acid/30 bg-acid/10";
@@ -59,10 +38,7 @@ function UploadCard({ view, file, onFile }: { view: View; file: File | null; onF
 }
 
 export default function Home() {
-  const [fields, setFields] = useState({ unit_id: "", org_id: "", sku: "", fnsku: "", work_order_id: "", fba_shipment_id: "", wo_handling_marks: "" });
-  const [requirements, setRequirements] = useState({ wo_polybag: false, wo_suffocation_warning: false, wo_expiry_date: false });
   const [files, setFiles] = useState<Record<View, File | null>>({ front: null, back: null, label: null });
-  const [csvName, setCsvName] = useState("");
   const [result, setResult] = useState<ApiResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -70,27 +46,7 @@ export default function Home() {
   const complete = useMemo(() => Object.values(files).every(Boolean), [files]);
   const verdict = result ? verdictOf(result) : null;
 
-  const onField = (key: keyof typeof fields, value: string) => { setFields((old) => ({ ...old, [key]: value })); setResult(null); setError(""); };
   const updateFile = (view: View, file: File | null) => { setFiles((old) => ({ ...old, [view]: file })); setError(""); setResult(null); };
-  async function loadCsv(file: File | undefined) {
-    setCsvName(""); setError(""); setResult(null);
-    if (!file) return;
-    if (!file.name.toLowerCase().endsWith(".csv") && file.type !== "text/csv") { setError("Choose a .csv file to load optional details."); return; }
-    try {
-      const rows = parseCsv(await file.text());
-      if (rows.length < 2) throw new Error("The CSV needs a header row and at least one data row.");
-      const headers = rows[0].map((header) => csvAliases[header.toLowerCase().replace(/[^a-z0-9]/g, "")]);
-      const values: Record<string, string> = {};
-      headers.forEach((key, index) => { if (key && rows[1][index] !== undefined) values[key] = rows[1][index]; });
-      setFields((current) => ({ ...current, ...Object.fromEntries(Object.entries(values).filter(([key]) => key in current)) }));
-      setRequirements((current) => ({
-        wo_polybag: values.wo_polybag === undefined ? current.wo_polybag : csvBoolean(values.wo_polybag),
-        wo_suffocation_warning: values.wo_suffocation_warning === undefined ? current.wo_suffocation_warning : csvBoolean(values.wo_suffocation_warning),
-        wo_expiry_date: values.wo_expiry_date === undefined ? current.wo_expiry_date : csvBoolean(values.wo_expiry_date),
-      }));
-      setCsvName(file.name);
-    } catch (err) { setError(err instanceof Error ? err.message : "Could not read the CSV file."); }
-  }
   async function inspect(event: FormEvent) {
     event.preventDefault(); setResult(null); setError("");
     if (!complete) { setError("Add a front, back and label image before starting an inspection."); return; }
@@ -116,7 +72,7 @@ export default function Home() {
   function downloadJson() {
     if (!result) return;
     const blob = new Blob([pretty(result)], { type: "application/json" }); const href = URL.createObjectURL(blob);
-    const link = document.createElement("a"); link.href = href; link.download = `${String(result.unit_id || fields.unit_id || "inspection")}-evidence.json`; link.click(); URL.revokeObjectURL(href);
+    const link = document.createElement("a"); link.href = href; link.download = "prep-inspection-evidence.json"; link.click(); URL.revokeObjectURL(href);
   }
 
   const rawChecks = (result?.checks ?? (result?.record as ApiResult | undefined)?.checks) as unknown;
@@ -133,22 +89,16 @@ export default function Home() {
       </header>
 
       <div className="mb-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_330px]">
-        <section><div className="mb-5 flex items-end justify-between"><div><div className="mb-2 text-[10px] font-bold uppercase tracking-[.22em] text-acid">01 / New inspection</div><h1 className="text-3xl font-semibold tracking-tight md:text-4xl">Package compliance</h1><p className="mt-2 text-sm text-zinc-400">Capture three views. Get a decision from the live Prep Manager engine.</p></div><div className="hidden font-mono text-[10px] text-zinc-600 sm:block">MODE / LIVE UPLOAD</div></div>
+        <section><div className="mb-5 flex items-end justify-between"><div><div className="mb-2 text-[10px] font-bold uppercase tracking-[.22em] text-acid">01 / New inspection</div><h1 className="text-3xl font-semibold tracking-tight md:text-4xl">Package compliance</h1><p className="mt-2 text-sm text-zinc-400">Upload the package views. The live Prep Manager agent returns the inspection.</p></div><div className="hidden font-mono text-[10px] text-zinc-600 sm:block">MODE / LIVE UPLOAD</div></div>
           <form onSubmit={inspect} className="panel rounded-2xl p-4 md:p-6">
-            <div className="mb-4 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.17em] text-zinc-400"><span className="text-acid">A</span> Optional inspection details</div>
-            <label className="mb-4 flex cursor-pointer flex-wrap items-center gap-3 rounded-lg border border-dashed border-white/15 bg-black/15 px-3 py-3 hover:border-acid/50"><input type="file" accept=".csv,text/csv" onChange={(e) => void loadCsv(e.target.files?.[0])} className="sr-only"/><span className="rounded-md border border-white/10 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-acid">Add CSV</span><span className="text-xs text-zinc-400">{csvName || "Load the first row of a CSV into these optional fields"}</span><span className="ml-auto text-[9px] uppercase tracking-wider text-zinc-600">Processed in browser · not uploaded</span></label>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {([["unit_id","Unit ID","Optional"],["org_id","Organisation ID","Optional"],["sku","SKU","Optional"],["fnsku","FNSKU","Optional"],["work_order_id","Work order","Optional"],["fba_shipment_id","FBA shipment","Optional"],["wo_handling_marks","Handling marks","Optional"]] as const).map(([key,label,placeholder]) => <label key={key} className={key === "wo_handling_marks" ? "sm:col-span-2" : ""}><span className="mb-1.5 block text-[10px] font-medium uppercase tracking-wider text-zinc-500">{label}</span><input maxLength={160} value={fields[key]} onChange={(e) => onField(key,e.target.value)} placeholder={placeholder} className="h-10 w-full rounded-lg border border-white/10 bg-black/25 px-3 text-sm text-zinc-100 placeholder:text-zinc-600" /></label>)}
-            </div>
-            <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 border-t border-white/[.07] pt-4">{([["wo_polybag","Polybag required"],["wo_suffocation_warning","Warning required"],["wo_expiry_date","Expiry date required"]] as const).map(([key,label]) => <label key={key} className="flex cursor-pointer items-center gap-2 text-xs text-zinc-400"><input type="checkbox" checked={requirements[key]} onChange={(e) => {setRequirements((old) => ({...old,[key]:e.target.checked})); setResult(null); setError("");}} className="accent-[#c7f36b]" />{label}</label>)}</div>
-            <div className="mb-3 mt-7 flex items-center justify-between"><div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.17em] text-zinc-400"><span className="text-acid">B</span> Camera captures</div><span className="text-[10px] text-zinc-600">{Object.values(files).filter(Boolean).length} / 3 attached</span></div>
+            <div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.17em] text-zinc-400"><span className="text-acid">01</span> Upload images</div><span className="text-[10px] text-zinc-600">{Object.values(files).filter(Boolean).length} / 3 attached</span></div>
             <div className="grid gap-3 md:grid-cols-3">{(["front","back","label"] as const).map((view) => <UploadCard key={view} view={view} file={files[view]} onFile={(file) => updateFile(view,file)} />)}</div>
             <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-[11px] text-zinc-500">Images are sent securely to the live inspection API for this request.</p><button disabled={busy} type="submit" className="inline-flex h-12 items-center justify-center gap-3 rounded-lg bg-acid px-5 text-xs font-black uppercase tracking-[.12em] text-[#11150f] transition hover:bg-[#d6ff7d] disabled:cursor-wait disabled:opacity-65"><span>{busy ? "Inspecting" : "Inspect Package"}</span>{busy ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-black/25 border-t-black"/> : <span aria-hidden="true">↗</span>}</button></div>
             {!complete && !error && <div className="mt-3 text-right text-[10px] text-zinc-600">All three camera views are required to inspect.</div>}
           </form>
         </section>
 
-        <aside className="panel flex flex-col rounded-2xl p-5"><div className="mb-6 text-[10px] font-bold uppercase tracking-[.2em] text-zinc-500">Process route</div><ol className="space-y-5">{[["01","Identify unit","Optional browser-only details"],["02","Capture evidence","Front · back · label"],["03","Run inspection","Live hosted service"],["04","Handoff","Evidence JSON"]].map(([n,title,sub],i) => <li key={n} className="flex gap-3"><div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[9px] font-bold ${i < 2 && complete ? "border-acid/40 bg-acid/10 text-acid" : "border-white/10 text-zinc-500"}`}>{n}</div><div><div className="text-xs font-medium">{title}</div><div className="mt-1 text-[10px] text-zinc-500">{sub}</div></div></li>)}</ol><div className="mt-auto border-t border-white/[.08] pt-5"><div className="text-[9px] uppercase tracking-[.18em] text-zinc-500">Inspection integrity</div><p className="mt-2 text-[11px] leading-relaxed text-zinc-500">No local sample results. The verdict and evidence below come from the hosted API response.</p><div className="mt-4 flex items-center gap-2 font-mono text-[9px] text-zinc-600"><span className="h-1 w-1 rounded-full bg-acid"/>FRESH INSPECTION REQUEST</div></div></aside>
+        <aside className="panel flex flex-col rounded-2xl p-5"><div className="mb-6 text-[10px] font-bold uppercase tracking-[.2em] text-zinc-500">Process route</div><ol className="space-y-5">{[["01","Upload images","Front · back · label"],["02","Run inspection","Live hosted service"],["03","Review result","Verdict · evidence · action"]].map(([n,title,sub],i) => <li key={n} className="flex gap-3"><div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[9px] font-bold ${i === 0 && complete ? "border-acid/40 bg-acid/10 text-acid" : "border-white/10 text-zinc-500"}`}>{n}</div><div><div className="text-xs font-medium">{title}</div><div className="mt-1 text-[10px] text-zinc-500">{sub}</div></div></li>)}</ol><div className="mt-auto border-t border-white/[.08] pt-5"><div className="text-[9px] uppercase tracking-[.18em] text-zinc-500">Inspection integrity</div><p className="mt-2 text-[11px] leading-relaxed text-zinc-500">The agent receives uploaded images only. The server creates a hidden request ID required by the Render API.</p><div className="mt-4 flex items-center gap-2 font-mono text-[9px] text-zinc-600"><span className="h-1 w-1 rounded-full bg-acid"/>FRESH INSPECTION REQUEST</div></div></aside>
       </div>
 
       {error && <section role="alert" className="mb-6 rounded-xl border border-rose-400/25 bg-rose-400/[.06] p-4 text-sm text-rose-200"><div className="flex gap-3"><span className="text-lg">!</span><div><div className="font-semibold">Inspection not completed</div><p className="mt-1 text-xs leading-relaxed text-rose-200/75">{error}</p></div></div></section>}
@@ -160,7 +110,7 @@ export default function Home() {
           <div className="mt-5"><div className="mb-3 text-[10px] font-bold uppercase tracking-[.18em] text-zinc-500">Per-check verdicts</div>{checks.length ? <div className="space-y-2">{checks.map(([name,value]) => { const check = value && typeof value === "object" ? value as Record<string, unknown> : { verdict: value }; const checkVerdict = scalar(check.status ?? check.verdict ?? check.result ?? check.decision) || "REPORTED"; return <article key={name} className="rounded-lg border border-white/[.07] bg-black/15 p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div className="text-xs font-semibold capitalize">{name.replaceAll("_"," ")}</div><span className={`rounded-full border px-2 py-1 text-[9px] font-bold ${statusColor(checkVerdict)}`}>{checkVerdict}</span></div>{(scalar(check.explanation ?? check.message ?? check.reason ?? check.details)) && <p className="mt-2 text-[11px] leading-relaxed text-zinc-400">{scalar(check.explanation ?? check.message ?? check.reason ?? check.details)}</p>}</article>; })}</div> : <p className="rounded-lg border border-white/[.07] p-3 text-xs text-zinc-500">No per-check results were included in the API response.</p>}</div>
           {evidence !== undefined && <details className="mt-4 rounded-lg border border-white/[.08] bg-black/15"><summary className="cursor-pointer px-3 py-3 text-[10px] font-bold uppercase tracking-wider text-zinc-400">Visual evidence payload</summary><pre className="max-h-72 overflow-auto border-t border-white/[.07] p-3 text-[10px] leading-relaxed text-zinc-400">{pretty(evidence)}</pre></details>}
         </div>
-        <aside className="panel rounded-2xl p-5"><div className="text-[10px] font-bold uppercase tracking-[.2em] text-zinc-500">Handoff recommendation</div><div className={`mt-3 inline-flex rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider ${statusColor(recommendation || verdict)}`}>{recommendation || "Not provided"}</div><p className="mt-3 text-xs leading-relaxed text-zinc-400">The recommendation shown here is taken from the service response.</p><div className="mt-6 border-t border-white/[.08] pt-4"><div className="text-[9px] uppercase tracking-[.16em] text-zinc-500">Record identifiers</div><div className="mt-3 space-y-2">{[["Unit", result.unit_id],["Organisation",result.org_id ?? result.tenant],["Task",result.task_id],["Workflow",result.workflow_id],["Rule version",result.rule_version]].filter(([,v]) => v !== undefined && v !== null && v !== "").map(([label,value])=><div key={String(label)} className="flex justify-between gap-3 text-[10px]"><span className="text-zinc-600">{scalar(label)}</span><span className="max-w-[190px] truncate font-mono text-zinc-300">{scalar(value)}</span></div>)}</div></div><div className="mt-5 rounded-lg border border-acid/15 bg-acid/[.04] p-3 text-[10px] leading-relaxed text-zinc-400">The JSON export contains the complete, unmodified response returned by the live API.</div></aside>
+        <aside className="panel rounded-2xl p-5"><div className="text-[10px] font-bold uppercase tracking-[.2em] text-zinc-500">Handoff recommendation</div><div className={`mt-3 inline-flex rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider ${statusColor(recommendation || verdict)}`}>{recommendation || "Not provided"}</div><p className="mt-3 text-xs leading-relaxed text-zinc-400">The recommendation shown here is taken from the service response.</p><div className="mt-6 rounded-lg border border-acid/15 bg-acid/[.04] p-3 text-[10px] leading-relaxed text-zinc-400">The JSON export contains the complete response returned by the live API.</div></aside>
       </section>}
       <footer className="mt-10 flex flex-wrap justify-between gap-2 border-t border-white/[.07] pt-4 text-[9px] uppercase tracking-[.14em] text-zinc-700"><span>Prep Manager · Inbound inspection</span><span>Results displayed as received · no simulated verdicts</span></footer>
     </div>
