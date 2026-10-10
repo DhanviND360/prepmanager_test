@@ -23,7 +23,7 @@ Open [http://localhost:3000](http://localhost:3000). For a production build, run
 
 ## Live request behavior
 
-The frontend requires a unit ID, organisation ID, SKU, FNSKU and all three image views. The server proxy validates image size and image file signatures, then sends JSON to `/run` with `images.front`, `images.back`, and `images.label` as Base64 data URLs, along with tenant, subject and work-order fields. It sets `force_reinspect: true` and `image_mode: "live_upload"`; it never calls reference-based dataset inspection endpoints. Image contents are not logged or persisted by this frontend.
+The frontend requires all three image views; unit, organisation, SKU, FNSKU and work-order details are optional local fields. An optional CSV upload is parsed in the browser and can fill those fields from its first data row. CSV contents and optional fields stay in the browser and are never sent to the inspection agent. The server proxy validates image size and signatures, then sends `/run` a JSON body containing only the uploaded `images.front`, `images.back`, and `images.label` Base64 data URLs plus the fixed live-upload and cache-bypass flags. It never calls reference-based dataset inspection endpoints. Image contents are not logged or persisted by this frontend.
 
 The response must be valid JSON with a `PASS`, `FAIL`, or `UNCERTAIN` decision/verdict. API errors, timeouts, malformed JSON, and invalid verdicts render as errors; previous results are cleared when a new inspection starts. The page only displays check details, evidence, recommendations and identifiers present in the service response. Copy and Download JSON export the unmodified backend response.
 

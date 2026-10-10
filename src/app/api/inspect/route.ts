@@ -18,13 +18,6 @@ export async function POST(request: NextRequest) {
   let form: FormData;
   try { form = await request.formData(); } catch { return NextResponse.json({ error: "Invalid multipart request." }, { status: 400 }); }
 
-  const fields = ["unit_id", "org_id", "sku", "fnsku"] as const;
-  const data: Record<string, string> = {};
-  for (const field of fields) {
-    const value = form.get(field);
-    if (typeof value !== "string" || !value.trim() || value.length > 160) return NextResponse.json({ error: `${field.replaceAll("_", " ")} is required (maximum 160 characters).` }, { status: 400 });
-    data[field] = value.trim();
-  }
   const views = ["front", "back", "label"] as const;
   const images: Record<(typeof views)[number], { mime: string; bytes: Buffer }> = {} as Record<(typeof views)[number], { mime: string; bytes: Buffer }>;
   for (const view of views) {
@@ -37,25 +30,9 @@ export async function POST(request: NextRequest) {
     images[view] = { mime: detectedMime, bytes };
   }
 
-  const workOrder = {
-    work_order_id: String(form.get("work_order_id") || ""),
-    fba_shipment_id: String(form.get("fba_shipment_id") || ""),
-    wo_polybag: form.get("wo_polybag") === "true",
-    wo_suffocation_warning: form.get("wo_suffocation_warning") === "true",
-    wo_expiry_date: form.get("wo_expiry_date") === "true",
-    wo_handling_marks: String(form.get("wo_handling_marks") || ""),
-  };
-
   const apiBase = (process.env.PREP_API_BASE_URL || "https://cube26-prp-0211-dhanvind360.onrender.com").replace(/\/$/, "");
   const payload = {
-    unit_id: data.unit_id,
-    id: data.unit_id,
-    org_id: data.org_id,
-    tenant: data.org_id,
-    subject: { org_id: data.org_id, subject_id: data.unit_id, sku: data.sku, fnsku: data.fnsku },
     images: Object.fromEntries(views.map((view) => [view, `data:${images[view].mime};base64,${images[view].bytes.toString("base64")}`])),
-    work_order: { ...workOrder, sku: data.sku, fnsku: data.fnsku },
-    params: { ...workOrder, sku: data.sku, fnsku: data.fnsku },
     force_reinspect: true,
     image_mode: "live_upload",
   };
